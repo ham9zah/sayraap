@@ -1,0 +1,10 @@
+[package]
+name = "sayraap-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ureq = { version = "2", features = ["json"] }
+serde_json = "1"

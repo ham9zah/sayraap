@@ -1,0 +1,15 @@
+[package]
+name = "sayraap-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "sayraap"
+path = "src/main.rs"
+
+[dependencies]
+sayraap-core = { path = "../core" }
+fluent-bundle = "0.16"
+unic-langid = "0.9"
