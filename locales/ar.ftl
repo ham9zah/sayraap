@@ -1,6 +1,72 @@
 core-ready = النواة جاهزة (الإصدار { $version }).
-cli-usage = الاستخدام: sayraap [--lang ar|en] [--url URL] [--model NAME] [--timeout SECONDS] ask "سؤالك"
+cli-usage =
+    الاستخدام: sayraap [options] <command>
+    الأوامر:
+      ask "سؤال"          يرسل سؤالًا للنموذج ويطبع الجواب
+      prompt <card.toml>  يطبع بطاقة المهمة كما يستلمها النموذج
+      run <card.toml>     يرسل بطاقة المهمة ويطبّق تعديلات النموذج
+    الخيارات: --lang ar|en و --project-lang ar|en و --dir PATH و --max-lines N و --url URL و --model NAME و --timeout SECONDS
 llm-unreachable = تعذر الوصول إلى النموذج على { $url }. تأكد أن الخادم يعمل.
 llm-http-error = خادم النموذج رد بالخطأ { $status }.
 llm-bad-response = خادم النموذج أرسل ردًا لا يمكن قراءته.
 llm-tokens = [{ $model }] التوكنات: { $prompt } داخلة، { $completion } خارجة.
+
+## بطاقة المهمة. أسطر العلامات (SEARCH و ======= و REPLACE و MISSING:) يقرؤها الكود: لا تُترجم أبدًا.
+card-prompt =
+    مهمتك تغيير واحد صغير في ملف واحد. التزم بهذه البطاقة حرفيًا.
+
+    المطلوب
+    { $goal }
+
+    الملف (الوحيد المسموح بتعديله): { $file }
+    بداية المحتوى الحالي
+    { $current }
+    نهاية المحتوى الحالي
+
+    الممنوع
+    { $forbidden }
+
+    معايير القبول
+    { $acceptance }
+
+    صيغة الناتج
+    أجب بكتلة تعديل واحدة أو أكثر ولا شيء غيرها. كل كتلة بهذا الشكل تمامًا:
+    <<<<<<< SEARCH
+    أسطر منسوخة حرفيًا من المحتوى الحالي
+    =======
+    الأسطر التي تحل محلها
+    >>>>>>> REPLACE
+    جزء SEARCH يجب أن يطابق المحتوى الحالي حرفًا بحرف، وأن يظهر فيه مرة واحدة فقط. اجعله قصيرًا. لإضافة نص جديد، ضع سطرًا موجودًا قريبًا في SEARCH وكرره في البديل مع النص الجديد.
+
+    إذا نقصتك معلومة لازمة فلا تخمّن. أجب بهذا السطر الوحيد بدلًا من ذلك:
+    MISSING: ما الذي ينقصك
+
+card-unreadable = تعذرت قراءة بطاقة المهمة: { $detail }
+card-no-goal = بطاقة المهمة بلا مطلوب.
+card-no-acceptance = بطاقة المهمة بلا معايير قبول.
+card-bad-path = بطاقة المهمة تسمّي ملفًا خارج المشروع: "{ $file }".
+file-unreadable = تعذرت قراءة { $path }.
+file-unwritable = تعذرت الكتابة في { $path }.
+edit-unreadable = رد النموذج لم يلتزم بصيغة الناتج.
+edit-not-found = التعديل { $index }: النص المطلوب إيجاده غير موجود في الملف.
+edit-ambiguous = التعديل { $index }: النص المطلوب إيجاده يظهر أكثر من مرة.
+edit-no-change = تعديلات النموذج تترك الملف كما هو.
+task-missing-info = النموذج توقف وطلب: { $detail }
+task-accepted = قُبلت: تغيّر في { $file } { $lines ->
+        [one] سطر واحد
+        [two] سطران
+        [few] { $lines } أسطر
+       *[other] { $lines } سطرًا
+    }، وحُفظت كخطوة { $commit }.
+task-rejected = رُفضت. المشروع كما كان تمامًا.
+task-too-large = التغيير يمس { $changed ->
+        [one] سطرًا واحدًا
+        [two] سطرين
+        [few] { $changed } أسطر
+       *[other] { $changed } سطرًا
+    }، والحد { $limit }.
+task-out-of-scope = تغيّرت ملفات خارج المهمة: { $files }
+repo-not-found = { $path } ليس مشروعًا له خطوات محفوظة (لا يوجد مستودع Git في جذره).
+repo-no-commit = المشروع بلا أي خطوة محفوظة بعد، فلا يوجد ما يُرجع إليه.
+repo-dirty = في المشروع تغييرات غير محفوظة ({ $files }). احفظها أو تخلص منها أولًا؛ المهمة لم تبدأ.
+repo-failed = سجل الخطوات أبلغ عن خطأ: { $detail }

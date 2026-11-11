@@ -2,13 +2,26 @@
 //! Everything the user sees leaves this crate as a `Message` (a key plus
 //! arguments); the front-ends turn it into text from the locale files.
 
+pub mod edit;
+pub mod limits;
 pub mod llm;
+pub mod repo;
+pub mod runner;
+pub mod task;
+
+/// One argument of a message. Numbers are kept as numbers so a language
+/// can pick the right plural form for them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Arg {
+    Text(String),
+    Number(i64),
+}
 
 /// A user-facing message, identified by its key in `locales/*.ftl`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
     pub key: &'static str,
-    pub args: Vec<(&'static str, String)>,
+    pub args: Vec<(&'static str, Arg)>,
 }
 
 impl Message {
@@ -16,9 +29,24 @@ impl Message {
         Self { key, args: Vec::new() }
     }
 
+    /// Adds a text argument.
     pub fn arg(mut self, name: &'static str, value: impl Into<String>) -> Self {
-        self.args.push((name, value.into()));
+        self.args.push((name, Arg::Text(value.into())));
         self
+    }
+
+    /// Adds a numeric argument.
+    pub fn num(mut self, name: &'static str, value: impl TryInto<i64>) -> Self {
+        self.args.push((name, Arg::Number(value.try_into().unwrap_or(i64::MAX))));
+        self
+    }
+
+    /// The text argument called `name`, if there is one.
+    pub fn text_arg(&self, name: &str) -> Option<&str> {
+        self.args.iter().find_map(|(n, a)| match a {
+            Arg::Text(t) if *n == name => Some(t.as_str()),
+            _ => None,
+        })
     }
 }
 
@@ -35,6 +63,6 @@ mod tests {
     fn ready_carries_version() {
         let m = ready();
         assert_eq!(m.key, "core-ready");
-        assert_eq!(m.args[0].0, "version");
+        assert!(m.text_arg("version").is_some());
     }
 }

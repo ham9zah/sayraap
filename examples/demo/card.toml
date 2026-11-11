@@ -1,0 +1,11 @@
+goal = "Add a public function `farewell` that takes a name and returns \"Goodbye, {name}!\"."
+file = "greet.rs"
+forbidden = [
+  "Do not change the greet function",
+  "Do not add any other function",
+]
+acceptance = [
+  "A public function named farewell exists",
+  "farewell returns a String that starts with Goodbye",
+  "The greet function is unchanged",
+]

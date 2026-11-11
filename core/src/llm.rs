@@ -36,7 +36,7 @@ impl LlmError {
         match self {
             LlmError::Unreachable { url } => Message::new("llm-unreachable").arg("url", url),
             LlmError::Http { status } => {
-                Message::new("llm-http-error").arg("status", status.to_string())
+                Message::new("llm-http-error").num("status", *status)
             }
             LlmError::BadResponse => Message::new("llm-bad-response"),
         }
