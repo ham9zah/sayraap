@@ -40,19 +40,19 @@ impl Translator {
         let mut args = FluentArgs::new();
         for (name, value) in &message.args {
             match value {
-                Arg::Text(text) => args.set(*name, text.as_str()),
-                Arg::Number(number) => args.set(*name, *number),
+                Arg::Text(text) => args.set(name.as_str(), text.as_str()),
+                Arg::Number(number) => args.set(name.as_str(), *number),
             }
         }
         for bundle in &self.bundles {
-            if let Some(pattern) = bundle.get_message(message.key).and_then(|m| m.value()) {
+            if let Some(pattern) = bundle.get_message(&message.key).and_then(|m| m.value()) {
                 let mut errors = Vec::new();
                 return bundle
                     .format_pattern(pattern, Some(&args), &mut errors)
                     .into_owned();
             }
         }
-        message.key.to_string()
+        message.key.clone()
     }
 }
 
@@ -104,5 +104,29 @@ mod format_tests {
         assert!(applied(2).contains("سطران"));
         assert!(applied(5).contains("5 أسطر"));
         assert!(applied(5).contains("0123456"));
+    }
+}
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    /// Every key in the English file must exist in Arabic too, so Arabic
+    /// users never see an English fallback by accident.
+    #[test]
+    fn arabic_has_every_english_key() {
+        let keys = |source: &str| -> Vec<String> {
+            source
+                .lines()
+                .filter(|l| l.chars().next().is_some_and(|c| c.is_ascii_lowercase()))
+                .filter_map(|l| l.split_once(" =").or(l.split_once('=')).map(|(k, _)| k.trim().to_string()))
+                .collect()
+        };
+        let arabic = keys(AR);
+        let missing: Vec<String> = keys(EN)
+            .into_iter()
+            .filter(|k| k != "test-english-only" && !arabic.contains(k))
+            .collect();
+        assert!(missing.is_empty(), "missing in ar.ftl: {missing:?}");
     }
 }

@@ -8,6 +8,8 @@ pub mod limits;
 pub mod llm;
 pub mod repo;
 pub mod runner;
+pub mod session;
+pub mod store;
 pub mod task;
 
 /// One argument of a message. Numbers are kept as numbers so a language
@@ -21,31 +23,31 @@ pub enum Arg {
 /// A user-facing message, identified by its key in `locales/*.ftl`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
-    pub key: &'static str,
-    pub args: Vec<(&'static str, Arg)>,
+    pub key: String,
+    pub args: Vec<(String, Arg)>,
 }
 
 impl Message {
-    pub fn new(key: &'static str) -> Self {
-        Self { key, args: Vec::new() }
+    pub fn new(key: impl Into<String>) -> Self {
+        Self { key: key.into(), args: Vec::new() }
     }
 
     /// Adds a text argument.
-    pub fn arg(mut self, name: &'static str, value: impl Into<String>) -> Self {
-        self.args.push((name, Arg::Text(value.into())));
+    pub fn arg(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.args.push((name.into(), Arg::Text(value.into())));
         self
     }
 
     /// Adds a numeric argument.
-    pub fn num(mut self, name: &'static str, value: impl TryInto<i64>) -> Self {
-        self.args.push((name, Arg::Number(value.try_into().unwrap_or(i64::MAX))));
+    pub fn num(mut self, name: impl Into<String>, value: impl TryInto<i64>) -> Self {
+        self.args.push((name.into(), Arg::Number(value.try_into().unwrap_or(i64::MAX))));
         self
     }
 
     /// The text argument called `name`, if there is one.
     pub fn text_arg(&self, name: &str) -> Option<&str> {
         self.args.iter().find_map(|(n, a)| match a {
-            Arg::Text(t) if *n == name => Some(t.as_str()),
+            Arg::Text(t) if n == name => Some(t.as_str()),
             _ => None,
         })
     }

@@ -4,7 +4,9 @@ use i18n::Translator;
 use sayraap_core::check::{Check, DEFAULT_CHECK_TIMEOUT_SECS};
 use sayraap_core::limits::Limits;
 use sayraap_core::llm::{chat, Endpoint};
-use sayraap_core::runner::{read_target, run_task, Verdict};
+use sayraap_core::runner::{read_target, Verdict};
+use sayraap_core::session::{run_recorded, RunSetup};
+use sayraap_core::store::Store;
 use sayraap_core::task::TaskCard;
 use sayraap_core::Message;
 use std::path::{Path, PathBuf};
@@ -28,6 +30,10 @@ struct Options {
     /// Command that must succeed before a change is accepted, e.g. "cargo check".
     check: Option<String>,
     check_timeout: Duration,
+    /// Database file. Defaults to the user's application-data folder.
+    db: Option<PathBuf>,
+    /// With `attempts`: also print each raw model reply.
+    show_reply: bool,
     /// Everything that is not an option: the command and its arguments.
     rest: Vec<String>,
 }
@@ -49,6 +55,8 @@ fn options() -> Options {
         limits: Limits::default(),
         check: None,
         check_timeout: Duration::from_secs(DEFAULT_CHECK_TIMEOUT_SECS),
+        db: std::env::var("SAYRAAP_DB").ok().map(PathBuf::from),
+        show_reply: false,
         rest: Vec::new(),
     };
     let mut args = std::env::args().skip(1);
@@ -64,6 +72,8 @@ fn options() -> Options {
                     o.endpoint.timeout = Duration::from_secs(secs);
                 }
             }
+            "--show-reply" => o.show_reply = true,
+            "--db" => o.db = args.next().map(PathBuf::from),
             "--check" => o.check = args.next(),
             "--check-timeout" => {
                 if let Some(secs) = args.next().and_then(|v| v.parse().ok()) {
@@ -89,7 +99,7 @@ fn usage_line(t: &Translator, endpoint: &Endpoint, prompt: u64, completion: u64)
     eprintln!("{}", t.text(&usage));
 }
 
-fn path_message(key: &'static str, path: &Path) -> Message {
+fn path_message(key: &str, path: &Path) -> Message {
     Message::new(key).arg("path", path.display().to_string())
 }
 
@@ -121,18 +131,42 @@ fn show_prompt(o: &Options) -> Result<(), Message> {
     Ok(())
 }
 
+/// Opens the database, outside the project so recording never dirties it.
+fn open_store(o: &Options) -> Result<Store, Message> {
+    let path = match &o.db {
+        Some(path) => path.clone(),
+        None => dirs::data_dir()
+            .ok_or_else(|| Message::new("store-no-folder"))?
+            .join("sayraap")
+            .join("sayraap.db"),
+    };
+    Store::open(&path).map_err(|e| e.message())
+}
+
 /// `run`: one task card from model to verdict. Accepted means one new commit;
-/// rejected means the project is exactly as it was.
+/// rejected means the project is exactly as it was. Either way it is recorded.
 fn run(o: &Options, t: &Translator) -> Result<(), Message> {
     let card = load_card(&o.rest[1])?;
+    let store = open_store(o)?;
     let project = project_translator(o);
     let render = |message: &Message| project.text(message);
+    let ask = |prompt: &str| chat(&o.endpoint, prompt);
     let check = o.check.as_deref().and_then(|line| Check::from_line(line, o.check_timeout));
-    let report = run_task(&o.dir, &card, &o.endpoint, o.limits, check.as_ref(), &render)
-        .map_err(|e| e.message())?;
+    let setup = RunSetup {
+        project: &o.dir,
+        model: &o.endpoint.model,
+        ask: &ask,
+        limits: o.limits,
+        check: check.as_ref(),
+        render: &render,
+    };
+    let recorded = run_recorded(&store, &card, &setup).map_err(|e| e.message())?;
+    let report = recorded.report;
     if report.prompt_tokens + report.completion_tokens > 0 {
         usage_line(t, &o.endpoint, report.prompt_tokens, report.completion_tokens);
     }
+    let noted = Message::new("task-recorded").num("task", recorded.task).num("attempt", recorded.attempt);
+    eprintln!("{}", t.text(&noted));
     match report.verdict {
         Verdict::Accepted(accepted) => {
             let done = Message::new("task-accepted")
@@ -149,6 +183,61 @@ fn run(o: &Options, t: &Translator) -> Result<(), Message> {
     }
 }
 
+/// `tasks`: the project's recorded tasks, oldest first.
+fn tasks(o: &Options, t: &Translator) -> Result<(), Message> {
+    let store = open_store(o)?;
+    let project = store.project(&o.dir).map_err(|e| e.message())?;
+    let rows = store.tasks(project).map_err(|e| e.message())?;
+    if rows.is_empty() {
+        println!("{}", t.text(&Message::new("tasks-empty")));
+    }
+    for row in rows {
+        let status = t.text(&Message::new(format!("status-{}", row.status.as_str())));
+        let line = Message::new("task-line")
+            .num("id", row.id)
+            .arg("status", status)
+            .arg("file", row.file)
+            .num("attempts", row.attempts)
+            .arg("commit", row.commit.as_deref().map(|c| &c[..c.len().min(7)]).unwrap_or("-"))
+            .arg("goal", row.goal);
+        println!("{}", t.text(&line));
+    }
+    Ok(())
+}
+
+/// `attempts <task>`: every attempt of one task, with the reason for each rejection.
+fn attempts(o: &Options, t: &Translator) -> Result<(), Message> {
+    let unknown = || Message::new("task-not-found").arg("id", &o.rest[1]);
+    let task: i64 = o.rest[1].parse().map_err(|_| unknown())?;
+    let store = open_store(o)?;
+    let project = store.project(&o.dir).map_err(|e| e.message())?;
+    if !store.has_task(project, task).map_err(|e| e.message())? {
+        return Err(unknown());
+    }
+    for row in store.attempts(task).map_err(|e| e.message())? {
+        let outcome = t.text(&Message::new(format!("outcome-{}", row.outcome.as_str())));
+        let line = Message::new("attempt-line")
+            .num("number", row.number)
+            .arg("model", row.model)
+            .arg("outcome", outcome)
+            .num("prompt", row.prompt_tokens)
+            .num("completion", row.completion_tokens)
+            .num("seconds", row.finished_at.map(|end| end - row.started_at).unwrap_or(0));
+        println!("{}", t.text(&line));
+        if let Some(reason) = &row.reason {
+            for text in t.text(reason).lines() {
+                println!("    {text}");
+            }
+        }
+        if o.show_reply {
+            for text in row.reply.as_deref().unwrap_or("").lines() {
+                println!("    | {text}");
+            }
+        }
+    }
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let o = options();
     let t = Translator::new(&o.lang);
@@ -161,6 +250,8 @@ fn main() -> ExitCode {
         (Some("ask"), n) if n > 1 => ask(&o, &t),
         (Some("prompt"), 2) => show_prompt(&o),
         (Some("run"), 2) => run(&o, &t),
+        (Some("tasks"), 1) => tasks(&o, &t),
+        (Some("attempts"), 2) => attempts(&o, &t),
         _ => Err(Message::new("cli-usage")),
     };
 

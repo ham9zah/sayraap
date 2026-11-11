@@ -4,8 +4,10 @@ cli-usage =
     الأوامر:
       ask "سؤال"          يرسل سؤالًا للنموذج ويطبع الجواب
       prompt <card.toml>  يطبع بطاقة المهمة كما يستلمها النموذج
-      run <card.toml>     يرسل بطاقة المهمة ويطبّق تعديلات النموذج
-    الخيارات: --lang ar|en و --project-lang ar|en و --dir PATH و --max-lines N و --check "COMMAND" و --check-timeout SECONDS و --url URL و --model NAME و --timeout SECONDS
+      run <card.toml>     ينفذ بطاقة المهمة: خطوة محفوظة واحدة أو لا تغيير
+      tasks               يعرض مهام هذا المشروع المسجلة
+      attempts <task>     يعرض كل محاولات مهمة (أضف --show-reply لعرض الردود الخام)
+    الخيارات: --lang ar|en و --project-lang ar|en و --dir PATH و --max-lines N و --check "COMMAND" و --check-timeout SECONDS و --db FILE و --url URL و --model NAME و --timeout SECONDS
 llm-unreachable = تعذر الوصول إلى النموذج على { $url }. تأكد أن الخادم يعمل.
 llm-http-error = خادم النموذج رد بالخطأ { $status }.
 llm-bad-response = خادم النموذج أرسل ردًا لا يمكن قراءته.
@@ -101,3 +103,22 @@ task-check-failed =
     { $detail }
 task-check-timeout = أمر الفحص لم ينتهِ خلال { $seconds } ثانية.
 check-unavailable = تعذر تشغيل أمر الفحص: { $command }. لم يُحكم على المهمة ولم يتغير شيء.
+
+task-recorded = سُجّلت كمهمة { $task }، المحاولة { $attempt }.
+task-line = { $id }  [{ $status }]  { $file }  المحاولات: { $attempts }  الخطوة: { $commit }  { $goal }
+tasks-empty = لا مهام مسجلة لهذا المشروع بعد.
+task-not-found = لا توجد في هذا المشروع مهمة "{ $id }".
+attempt-line = المحاولة { $number } [{ $model }] { $outcome } — التوكنات { $prompt } داخلة، { $completion } خارجة، { $seconds } ث
+status-pending = بانتظار التنفيذ
+status-running = قيد التنفيذ
+status-checking = قيد الفحص
+status-accepted = مقبولة
+status-rejected = مرفوضة
+status-stuck = متعثرة
+status-cancelled = ملغاة
+outcome-running = لم تكتمل
+outcome-accepted = مقبولة
+outcome-rejected = مرفوضة
+outcome-error = تعذر الحكم عليها
+store-failed = قاعدة بيانات المهام أبلغت عن خطأ: { $detail }
+store-no-folder = لم يُعثر على مجلد بيانات التطبيقات لقاعدة بيانات المهام. حدد ملفًا بـ --db FILE.

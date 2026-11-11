@@ -13,3 +13,4 @@ toml = "0.8"
 similar = "2"
 git2 = { version = "0.20", default-features = false }
 tempfile = "3"
+rusqlite = { version = "0.32", features = ["bundled"] }

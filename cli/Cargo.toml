@@ -13,3 +13,4 @@ path = "src/main.rs"
 sayraap-core = { path = "../core" }
 fluent-bundle = "0.16"
 unic-langid = "0.9"
+dirs = "5"

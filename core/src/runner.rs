@@ -4,7 +4,7 @@
 use crate::check::{run_check, Check, CheckResult};
 use crate::edit::{apply, parse_new_file, parse_output, EditError, Output};
 use crate::limits::{changed_lines, Limits};
-use crate::llm::{chat, Endpoint, LlmError};
+use crate::llm::{LlmError, Reply};
 use crate::repo::{Repo, RepoError};
 use crate::task::TaskCard;
 use crate::Message;
@@ -67,6 +67,8 @@ pub enum Verdict {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report {
     pub verdict: Verdict,
+    /// The model's raw reply, if it answered at all.
+    pub reply: Option<String>,
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
 }
@@ -111,26 +113,37 @@ pub fn read_target(project: &Path, card: &TaskCard) -> Result<String, RunError> 
     }
 }
 
+/// How the runner reaches a model: prompt in, reply out. Local and external
+/// providers, and tests, all fit behind this.
+pub type Ask<'a> = &'a dyn Fn(&str) -> Result<Reply, LlmError>;
+
+/// Checks that the project can be worked on and rolled back. Costs no tokens.
+pub fn preflight(project: &Path) -> Result<Repo, RunError> {
+    let repo = Repo::open(project)?;
+    repo.require_clean()?;
+    Ok(repo)
+}
+
 /// Runs one task. `render` turns the card's prompt message into text in the
 /// project's language; the core itself holds no text.
 pub fn run_task(
     project: &Path,
     card: &TaskCard,
-    endpoint: &Endpoint,
+    ask: Ask,
     limits: Limits,
     check: Option<&Check>,
     render: &dyn Fn(&Message) -> String,
 ) -> Result<Report, RunError> {
     // Check the project before spending any tokens.
-    let repo = Repo::open(project)?;
-    repo.require_clean()?;
+    let repo = preflight(project)?;
     let current = read_target(project, card)?;
 
-    let reply = match chat(endpoint, &render(&card.prompt(&current))) {
+    let reply = match ask(&render(&card.prompt(&current))) {
         Ok(reply) => reply,
         Err(e) => {
             return Ok(Report {
                 verdict: Verdict::Rejected(Rejection::Llm(e)),
+                reply: None,
                 prompt_tokens: 0,
                 completion_tokens: 0,
             })
@@ -139,6 +152,7 @@ pub fn run_task(
     let verdict = judge_and_save(&repo, project, card, &current, &reply.text, limits, check)?;
     Ok(Report {
         verdict,
+        reply: Some(reply.text),
         prompt_tokens: reply.prompt_tokens,
         completion_tokens: reply.completion_tokens,
     })
@@ -316,8 +330,8 @@ mod tests {
     fn a_dirty_project_is_refused_before_calling_the_model() {
         let (dir, _repo) = project(START);
         std::fs::write(dir.path().join("greet.rs"), "user's unsaved work\n").unwrap();
-        let endpoint = Endpoint { base_url: "http://127.0.0.1:9/v1".into(), model: "x".into(), timeout: std::time::Duration::from_secs(1) };
-        let result = run_task(dir.path(), &card(), &endpoint, Limits::default(), None, &|_| String::new());
+        let ask = |_: &str| -> Result<Reply, LlmError> { panic!("the model must not be called") };
+        let result = run_task(dir.path(), &card(), &ask, Limits::default(), None, &|_| String::new());
         assert!(matches!(result, Err(RunError::Repo(RepoError::Dirty { .. }))));
         assert_eq!(std::fs::read_to_string(dir.path().join("greet.rs")).unwrap(), "user's unsaved work\n");
     }

@@ -5,8 +5,10 @@ cli-usage =
     Commands:
       ask "question"      send a question to the model and print the answer
       prompt <card.toml>  print the task card as the model would receive it
-      run <card.toml>     send the task card and apply the model's edits
-    Options: --lang ar|en, --project-lang ar|en, --dir PATH, --max-lines N, --check "COMMAND", --check-timeout SECONDS, --url URL, --model NAME, --timeout SECONDS
+      run <card.toml>     run the task card: one saved step, or nothing changed
+      tasks               list this project's recorded tasks
+      attempts <task>     show every attempt of a task (add --show-reply for raw replies)
+    Options: --lang ar|en, --project-lang ar|en, --dir PATH, --max-lines N, --check "COMMAND", --check-timeout SECONDS, --db FILE, --url URL, --model NAME, --timeout SECONDS
 llm-unreachable = Could not reach the model at { $url }. Check that the server is running.
 llm-http-error = The model server answered with error { $status }.
 llm-bad-response = The model server sent a reply that could not be read.
@@ -95,3 +97,22 @@ task-check-failed =
     { $detail }
 task-check-timeout = The check command did not finish within { $seconds } seconds.
 check-unavailable = The check command could not be started: { $command }. The task was not judged and nothing was changed.
+
+task-recorded = Recorded as task { $task }, attempt { $attempt }.
+task-line = { $id }  [{ $status }]  { $file }  attempts: { $attempts }  step: { $commit }  { $goal }
+tasks-empty = No tasks recorded for this project yet.
+task-not-found = This project has no task "{ $id }".
+attempt-line = Attempt { $number } [{ $model }] { $outcome } — tokens { $prompt } in, { $completion } out, { $seconds } s
+status-pending = waiting
+status-running = running
+status-checking = checking
+status-accepted = accepted
+status-rejected = rejected
+status-stuck = stuck
+status-cancelled = cancelled
+outcome-running = unfinished
+outcome-accepted = accepted
+outcome-rejected = rejected
+outcome-error = could not be judged
+store-failed = The task database reported an error: { $detail }
+store-no-folder = No application-data folder was found for the task database. Pass one with --db FILE.
