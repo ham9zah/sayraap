@@ -2,6 +2,7 @@
 //! Everything the user sees leaves this crate as a `Message` (a key plus
 //! arguments); the front-ends turn it into text from the locale files.
 
+pub mod check;
 pub mod edit;
 pub mod limits;
 pub mod llm;

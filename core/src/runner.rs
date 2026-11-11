@@ -1,7 +1,8 @@
 //! One task from card to verdict: ask the model, apply its edits, check
 //! scope and size, then commit — or leave the project exactly as it was.
 
-use crate::edit::{apply, parse_output, EditError, Output};
+use crate::check::{run_check, Check, CheckResult};
+use crate::edit::{apply, parse_new_file, parse_output, EditError, Output};
 use crate::limits::{changed_lines, Limits};
 use crate::llm::{chat, Endpoint, LlmError};
 use crate::repo::{Repo, RepoError};
@@ -27,6 +28,9 @@ pub enum Rejection {
     TooLarge { changed: usize, limit: usize },
     /// Something other than the card's file changed.
     OutOfScope { files: Vec<String> },
+    /// The project's check command reported a problem with the change.
+    CheckFailed { detail: String },
+    CheckTimedOut { seconds: u64 },
 }
 
 impl Rejection {
@@ -42,6 +46,12 @@ impl Rejection {
             }
             Rejection::OutOfScope { files } => {
                 Message::new("task-out-of-scope").arg("files", files.join(", "))
+            }
+            Rejection::CheckFailed { detail } => {
+                Message::new("task-check-failed").arg("detail", detail)
+            }
+            Rejection::CheckTimedOut { seconds } => {
+                Message::new("task-check-timeout").num("seconds", *seconds)
             }
         }
     }
@@ -67,6 +77,8 @@ pub enum RunError {
     Repo(RepoError),
     Unreadable { path: String },
     Unwritable { path: String },
+    /// The check command could not be started, so nothing can be judged.
+    CheckUnavailable { command: String },
 }
 
 impl RunError {
@@ -75,6 +87,9 @@ impl RunError {
             RunError::Repo(e) => e.message(),
             RunError::Unreadable { path } => Message::new("file-unreadable").arg("path", path),
             RunError::Unwritable { path } => Message::new("file-unwritable").arg("path", path),
+            RunError::CheckUnavailable { command } => {
+                Message::new("check-unavailable").arg("command", command)
+            }
         }
     }
 }
@@ -103,6 +118,7 @@ pub fn run_task(
     card: &TaskCard,
     endpoint: &Endpoint,
     limits: Limits,
+    check: Option<&Check>,
     render: &dyn Fn(&Message) -> String,
 ) -> Result<Report, RunError> {
     // Check the project before spending any tokens.
@@ -120,7 +136,7 @@ pub fn run_task(
             })
         }
     };
-    let verdict = judge_and_save(&repo, project, card, &current, &reply.text, limits)?;
+    let verdict = judge_and_save(&repo, project, card, &current, &reply.text, limits, check)?;
     Ok(Report {
         verdict,
         prompt_tokens: reply.prompt_tokens,
@@ -137,10 +153,13 @@ fn judge_and_save(
     current: &str,
     reply: &str,
     limits: Limits,
+    check: Option<&Check>,
 ) -> Result<Verdict, RunError> {
     let reject = |r: Rejection| Ok(Verdict::Rejected(r));
 
-    let edits = match parse_output(reply) {
+    let parsed =
+        if TaskCard::is_new_file(current) { parse_new_file(reply) } else { parse_output(reply) };
+    let edits = match parsed {
         Ok(Output::Edits(edits)) => edits,
         Ok(Output::Missing(detail)) => return reject(Rejection::MissingInfo { detail }),
         Err(e) => return reject(Rejection::Edit(e)),
@@ -163,6 +182,25 @@ fn judge_and_save(
         return Err(RunError::Unwritable { path: path.display().to_string() });
     }
 
+    if let Some(check) = check {
+        match run_check(project, check) {
+            CheckResult::Passed => {}
+            CheckResult::Failed { detail } => {
+                repo.rollback()?;
+                return reject(Rejection::CheckFailed { detail });
+            }
+            CheckResult::TimedOut => {
+                repo.rollback()?;
+                return reject(Rejection::CheckTimedOut { seconds: check.timeout.as_secs() });
+            }
+            CheckResult::Unavailable => {
+                repo.rollback()?;
+                return Err(RunError::CheckUnavailable { command: check.command.join(" ") });
+            }
+        }
+    }
+
+    // Looked at after the check, so files a check leaves behind count too.
     let files = repo.changed_files()?;
     if files != [card.file.as_str()] {
         repo.rollback()?;
@@ -196,7 +234,7 @@ mod tests {
     fn judge(text: &str, limit: usize) -> (Verdict, String, bool) {
         let (dir, repo) = project(START);
         let limits = Limits { max_changed_lines: limit };
-        let verdict = judge_and_save(&repo, dir.path(), &card(), START, text, limits).unwrap();
+        let verdict = judge_and_save(&repo, dir.path(), &card(), START, text, limits, None).unwrap();
         let content = std::fs::read_to_string(dir.path().join("greet.rs")).unwrap();
         (verdict, content, repo.changed_files().unwrap().is_empty())
     }
@@ -232,10 +270,46 @@ mod tests {
         // Stands in for a tool touching another file while the task runs.
         std::fs::write(dir.path().join("other.rs"), "x").unwrap();
         let text = reply("pub fn greet() {}\npub fn farewell() {}");
-        let verdict = judge_and_save(&repo, dir.path(), &card(), START, &text, Limits::default()).unwrap();
+        let verdict = judge_and_save(&repo, dir.path(), &card(), START, &text, Limits::default(), None).unwrap();
         assert!(matches!(verdict, Verdict::Rejected(Rejection::OutOfScope { .. })));
         assert!(!dir.path().join("other.rs").exists());
         assert_eq!(std::fs::read_to_string(dir.path().join("greet.rs")).unwrap(), START);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_check_command_is_the_judge() {
+        use std::time::Duration;
+        let text = reply("pub fn greet() {}\npub fn farewell() {}");
+        let run = |line: &str| {
+            let (dir, repo) = project(START);
+            let check = Check::from_line(line, Duration::from_secs(5)).unwrap();
+            let verdict = judge_and_save(&repo, dir.path(), &card(), START, &text, Limits::default(), Some(&check));
+            let content = std::fs::read_to_string(dir.path().join("greet.rs")).unwrap();
+            (verdict, content, repo.changed_files().unwrap().is_empty())
+        };
+        // Passes only if the new text is really in the file when the check runs.
+        let (verdict, content, clean) = run("grep -q farewell greet.rs");
+        assert!(matches!(verdict, Ok(Verdict::Accepted(_))));
+        assert!(content.contains("farewell") && clean);
+
+        let (verdict, content, clean) = run("grep -q no-such-text greet.rs");
+        assert!(matches!(verdict, Ok(Verdict::Rejected(Rejection::CheckFailed { .. }))));
+        assert!(content == START && clean);
+
+        let (verdict, content, clean) = run("no-such-program-sayraap");
+        assert!(matches!(verdict, Err(RunError::CheckUnavailable { .. })));
+        assert!(content == START && clean);
+    }
+
+    #[test]
+    fn a_new_file_is_created_from_a_fenced_reply() {
+        let (dir, repo) = project(START);
+        let card = TaskCard::from_toml("goal = \"g\"\nfile = \"src/new.rs\"\nacceptance = [\"a\"]\n").unwrap();
+        let verdict = judge_and_save(&repo, dir.path(), &card, "", "```rust\npub fn n() {}\n```", Limits::default(), None).unwrap();
+        assert!(matches!(verdict, Verdict::Accepted(_)));
+        assert_eq!(std::fs::read_to_string(dir.path().join("src/new.rs")).unwrap(), "pub fn n() {}\n");
+        assert!(repo.changed_files().unwrap().is_empty());
     }
 
     #[test]
@@ -243,7 +317,7 @@ mod tests {
         let (dir, _repo) = project(START);
         std::fs::write(dir.path().join("greet.rs"), "user's unsaved work\n").unwrap();
         let endpoint = Endpoint { base_url: "http://127.0.0.1:9/v1".into(), model: "x".into(), timeout: std::time::Duration::from_secs(1) };
-        let result = run_task(dir.path(), &card(), &endpoint, Limits::default(), &|_| String::new());
+        let result = run_task(dir.path(), &card(), &endpoint, Limits::default(), None, &|_| String::new());
         assert!(matches!(result, Err(RunError::Repo(RepoError::Dirty { .. }))));
         assert_eq!(std::fs::read_to_string(dir.path().join("greet.rs")).unwrap(), "user's unsaved work\n");
     }

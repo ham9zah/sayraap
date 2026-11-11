@@ -6,7 +6,7 @@ cli-usage =
       ask "question"      send a question to the model and print the answer
       prompt <card.toml>  print the task card as the model would receive it
       run <card.toml>     send the task card and apply the model's edits
-    Options: --lang ar|en, --project-lang ar|en, --dir PATH, --max-lines N, --url URL, --model NAME, --timeout SECONDS
+    Options: --lang ar|en, --project-lang ar|en, --dir PATH, --max-lines N, --check "COMMAND", --check-timeout SECONDS, --url URL, --model NAME, --timeout SECONDS
 llm-unreachable = Could not reach the model at { $url }. Check that the server is running.
 llm-http-error = The model server answered with error { $status }.
 llm-bad-response = The model server sent a reply that could not be read.
@@ -47,6 +47,27 @@ card-prompt =
     Only if the task needs a fact that is not written on this card (such as a name or a value you would have to invent), do not guess. Reply with this single line instead:
     MISSING: the fact you need
 
+card-prompt-new =
+    You are creating one new file. Follow this card exactly.
+
+    TASK
+    { $goal }
+
+    FILE TO CREATE: { $file }
+    The file does not exist yet. There is no current content, and you do not need any.
+
+    FORBIDDEN
+    { $forbidden }
+
+    ACCEPTANCE CRITERIA
+    { $acceptance }
+
+    OUTPUT FORMAT
+    Reply with the complete content of the new file inside one code block (a line of three backticks before it and a line of three backticks after it) and nothing else.
+
+    Only if the task needs a fact that is not written on this card (such as a name or a value you would have to invent), do not guess. Reply with this single line instead:
+    MISSING: the fact you need
+
 card-unreadable = The task card could not be read: { $detail }
 card-no-goal = The task card has an empty goal.
 card-no-acceptance = The task card has no acceptance criteria.
@@ -69,3 +90,8 @@ repo-not-found = { $path } is not a project with saved steps (no Git repository 
 repo-no-commit = The project has no saved step yet, so there is nothing to return to.
 repo-dirty = The project has unsaved changes ({ $files }). Save or discard them first; the task was not started.
 repo-failed = The step history reported an error: { $detail }
+task-check-failed =
+    The check command found a problem with the change:
+    { $detail }
+task-check-timeout = The check command did not finish within { $seconds } seconds.
+check-unavailable = The check command could not be started: { $command }. The task was not judged and nothing was changed.

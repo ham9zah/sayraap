@@ -60,14 +60,24 @@ impl TaskCard {
     }
 
     /// The prompt sent to the executor, as a message key plus arguments.
-    /// `current` is the part of the file shown to the model.
+    /// `current` is the part of the file shown to the model. An empty file
+    /// gets its own card, which asks for the whole content instead of edits.
     pub fn prompt(&self, current: &str) -> Message {
-        Message::new("card-prompt")
+        let message = if Self::is_new_file(current) {
+            Message::new("card-prompt-new")
+        } else {
+            Message::new("card-prompt").arg("current", current)
+        };
+        message
             .arg("goal", self.goal.trim())
             .arg("file", &self.file)
-            .arg("current", current)
             .arg("forbidden", bullet_list(&self.forbidden))
             .arg("acceptance", bullet_list(&self.acceptance))
+    }
+
+    /// True when the task creates the file rather than editing it.
+    pub fn is_new_file(current: &str) -> bool {
+        current.trim().is_empty()
     }
 }
 
@@ -98,6 +108,13 @@ acceptance = ["A function named farewell exists"]
         let prompt = card.prompt("fn greet() {}");
         assert_eq!(prompt.key, "card-prompt");
         assert_eq!(prompt.text_arg("forbidden"), Some("- Do not change greet"));
+    }
+
+    #[test]
+    fn an_empty_file_gets_the_new_file_card() {
+        let card = TaskCard::from_toml(GOOD).unwrap();
+        assert_eq!(card.prompt("  \n").key, "card-prompt-new");
+        assert_eq!(card.prompt("  \n").text_arg("current"), None);
     }
 
     #[test]

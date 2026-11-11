@@ -1,6 +1,7 @@
 mod i18n;
 
 use i18n::Translator;
+use sayraap_core::check::{Check, DEFAULT_CHECK_TIMEOUT_SECS};
 use sayraap_core::limits::Limits;
 use sayraap_core::llm::{chat, Endpoint};
 use sayraap_core::runner::{read_target, run_task, Verdict};
@@ -24,6 +25,9 @@ struct Options {
     dir: PathBuf,
     endpoint: Endpoint,
     limits: Limits,
+    /// Command that must succeed before a change is accepted, e.g. "cargo check".
+    check: Option<String>,
+    check_timeout: Duration,
     /// Everything that is not an option: the command and its arguments.
     rest: Vec<String>,
 }
@@ -43,6 +47,8 @@ fn options() -> Options {
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
         },
         limits: Limits::default(),
+        check: None,
+        check_timeout: Duration::from_secs(DEFAULT_CHECK_TIMEOUT_SECS),
         rest: Vec::new(),
     };
     let mut args = std::env::args().skip(1);
@@ -56,6 +62,12 @@ fn options() -> Options {
             "--timeout" => {
                 if let Some(secs) = args.next().and_then(|v| v.parse().ok()) {
                     o.endpoint.timeout = Duration::from_secs(secs);
+                }
+            }
+            "--check" => o.check = args.next(),
+            "--check-timeout" => {
+                if let Some(secs) = args.next().and_then(|v| v.parse().ok()) {
+                    o.check_timeout = Duration::from_secs(secs);
                 }
             }
             "--max-lines" => {
@@ -115,8 +127,9 @@ fn run(o: &Options, t: &Translator) -> Result<(), Message> {
     let card = load_card(&o.rest[1])?;
     let project = project_translator(o);
     let render = |message: &Message| project.text(message);
-    let report =
-        run_task(&o.dir, &card, &o.endpoint, o.limits, &render).map_err(|e| e.message())?;
+    let check = o.check.as_deref().and_then(|line| Check::from_line(line, o.check_timeout));
+    let report = run_task(&o.dir, &card, &o.endpoint, o.limits, check.as_ref(), &render)
+        .map_err(|e| e.message())?;
     if report.prompt_tokens + report.completion_tokens > 0 {
         usage_line(t, &o.endpoint, report.prompt_tokens, report.completion_tokens);
     }

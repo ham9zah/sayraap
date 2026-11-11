@@ -120,6 +120,33 @@ pub fn parse_output(reply: &str) -> Result<Output, EditError> {
     missing.map(Output::Missing).ok_or(EditError::Unreadable)
 }
 
+/// Reads the reply to a new-file card: the whole file inside one code fence.
+/// It becomes a single edit with an empty search, which fills an empty file.
+pub fn parse_new_file(reply: &str) -> Result<Output, EditError> {
+    let mut content: Vec<&str> = Vec::new();
+    let mut fences = 0;
+    let mut missing: Option<String> = None;
+    for line in reply.lines() {
+        if line.trim_start().starts_with("```") {
+            fences += 1;
+        } else if fences == 1 {
+            content.push(line);
+        } else if fences == 0 && missing.is_none() {
+            if let Some(detail) = line.trim().strip_prefix(MISSING) {
+                missing = Some(detail.trim().to_string());
+            }
+        }
+    }
+    match fences {
+        // Exactly one opened and closed block: anything else is ambiguous or cut off.
+        2 if !content.join("").trim().is_empty() => {
+            Ok(Output::Edits(vec![Edit { search: String::new(), replace: content.join("\n") }]))
+        }
+        0 => missing.map(Output::Missing).ok_or(EditError::Unreadable),
+        _ => Err(EditError::Unreadable),
+    }
+}
+
 /// Applies the edits in order and returns the new content.
 /// The input is never modified, so a failure leaves nothing behind.
 pub fn apply(content: &str, edits: &[Edit]) -> Result<String, EditError> {
@@ -205,6 +232,20 @@ mod tests {
         assert_eq!(apply(content, &one("z", "q")), Err(EditError::NotFound { index: 1 }));
         assert_eq!(apply(content, &one("x", "q")), Err(EditError::Ambiguous { index: 1 }));
         assert_eq!(apply(content, &one("y", "y")), Err(EditError::NoChange));
+    }
+
+    #[test]
+    fn new_file_reply_is_one_fenced_block() {
+        let reply = "Here it is:\n```rust\npub fn a() {}\n\npub fn b() {}\n```\n";
+        let e = match parse_new_file(reply).unwrap() {
+            Output::Edits(e) => e,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(apply("", &e).unwrap(), "pub fn a() {}\n\npub fn b() {}\n");
+        assert_eq!(parse_new_file("MISSING: the title"), Ok(Output::Missing("the title".into())));
+        for bad in ["pub fn a() {}", "```\ncut off", "```\na\n```\n```\nb\n```", "```\n\n```"] {
+            assert_eq!(parse_new_file(bad), Err(EditError::Unreadable), "{bad}");
+        }
     }
 
     #[test]
