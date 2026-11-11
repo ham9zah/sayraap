@@ -1,0 +1,4 @@
+goal = "Change the `shout` function so the returned text ends with an exclamation mark, for example shout(\"hi\") returns \"HI!\"."
+file = "src/lib.rs"
+forbidden = ["Do not change any other function", "Do not rename shout"]
+acceptance = ["shout returns the upper-case text followed by !", "No other function changed"]

@@ -1,0 +1,4 @@
+goal = "Add forty public constants named LINE_1 to LINE_40, each on its own line, each a u32 equal to its number."
+file = "src/lib.rs"
+forbidden = ["Do not change existing functions"]
+acceptance = ["Constants LINE_1 to LINE_40 exist"]

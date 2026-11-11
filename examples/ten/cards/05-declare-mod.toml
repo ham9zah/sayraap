@@ -1,0 +1,4 @@
+goal = "Declare the module by adding the line `pub mod slug;` directly after the first line of the file."
+file = "src/lib.rs"
+forbidden = ["Do not change any function"]
+acceptance = ["The line pub mod slug; exists", "No function changed"]

@@ -1,0 +1,4 @@
+goal = "Rename the `shout` function to the new name that the team agreed on in last week's meeting."
+file = "src/lib.rs"
+forbidden = ["Do not invent a name"]
+acceptance = ["shout is renamed to the agreed name"]

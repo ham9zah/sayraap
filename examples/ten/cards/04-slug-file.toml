@@ -1,0 +1,4 @@
+goal = "Create the file with one public function `slugify(text: &str) -> String` that lower-cases the text and replaces each space with a hyphen."
+file = "src/slug.rs"
+forbidden = ["Do not add any other function"]
+acceptance = ["A public function named slugify exists", "The file contains only that function"]

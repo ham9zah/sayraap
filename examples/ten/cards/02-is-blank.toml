@@ -1,0 +1,4 @@
+goal = "Add a public function `is_blank(text: &str) -> bool` that returns true when the text is empty or only whitespace."
+file = "src/lib.rs"
+forbidden = ["Do not change existing functions"]
+acceptance = ["A public function named is_blank exists", "Existing functions are unchanged"]

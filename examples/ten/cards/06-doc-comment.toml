@@ -1,0 +1,4 @@
+goal = "Add a one-line doc comment (starting with ///) directly above the `word_count` function describing what it returns."
+file = "src/lib.rs"
+forbidden = ["Do not change any code line"]
+acceptance = ["A /// comment is directly above word_count", "No code line changed"]

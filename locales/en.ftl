@@ -31,16 +31,21 @@ card-prompt =
     { $acceptance }
 
     OUTPUT FORMAT
-    Reply with one or more edit blocks and nothing else. Every block has exactly this shape:
+    Reply with one or more edit blocks and nothing else. Every block has exactly this shape, with each of the three marker lines used once:
     <<<<<<< SEARCH
     lines copied exactly from the current content
     =======
     the lines that replace them
     >>>>>>> REPLACE
-    The SEARCH part must match the current content character for character, and must appear in it only once. Keep it short. To add new text, put a nearby existing line in SEARCH and repeat it in the replacement together with the new text.
 
-    If information you need is missing, do not guess. Reply with this single line instead:
-    MISSING: what you need
+    RULES
+    1. The SEARCH part must match the current content character for character and appear in it only once. Keep it short.
+    2. To ADD new text to a file that has content: copy one existing line next to where the new text goes into SEARCH, then write that same line together with the new text in the replacement. Adding text is always possible this way.
+    3. If the current content above is empty, the file is new: leave the SEARCH part empty and write the whole file in the replacement.
+    4. Change nothing that the task does not ask for.
+
+    Only if the task needs a fact that is not written on this card (such as a name or a value you would have to invent), do not guess. Reply with this single line instead:
+    MISSING: the fact you need
 
 card-unreadable = The task card could not be read: { $detail }
 card-no-goal = The task card has an empty goal.

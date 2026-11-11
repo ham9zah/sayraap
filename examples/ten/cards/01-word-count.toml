@@ -1,0 +1,4 @@
+goal = "Add a public function `word_count(text: &str) -> usize` that returns the number of whitespace-separated words."
+file = "src/lib.rs"
+forbidden = ["Do not change the shout function"]
+acceptance = ["A public function named word_count exists", "The shout function is unchanged"]

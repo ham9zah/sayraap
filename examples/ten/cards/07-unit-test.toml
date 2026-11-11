@@ -1,0 +1,4 @@
+goal = "Add a `#[cfg(test)] mod tests` block at the end of the file with one test that checks word_count(\"a b c\") equals 3."
+file = "src/lib.rs"
+forbidden = ["Do not change existing functions", "Do not add more than one test"]
+acceptance = ["A tests module exists at the end of the file", "It has exactly one test for word_count"]

@@ -1,0 +1,4 @@
+goal = "Create the file with a title line `# textkit` followed by one sentence saying it is a small library of text helpers."
+file = "README.md"
+forbidden = ["Do not write more than three lines"]
+acceptance = ["The first line is # textkit", "The file has at most three lines"]

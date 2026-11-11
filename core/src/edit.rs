@@ -86,9 +86,13 @@ pub fn parse_output(reply: &str) -> Result<Output, EditError> {
                     }
                 }
             }
+            // A marker in the wrong place means the block is malformed. Guessing
+            // what was meant would put marker lines into the user's file.
             State::InSearch => {
                 if marker == DIVIDER {
                     state = State::InReplace;
+                } else if marker == SEARCH || marker == REPLACE {
+                    return Err(EditError::Unreadable);
                 } else {
                     search.push(line);
                 }
@@ -97,6 +101,8 @@ pub fn parse_output(reply: &str) -> Result<Output, EditError> {
                 if marker == REPLACE {
                     edits.push(Edit { search: search.join("\n"), replace: replace.join("\n") });
                     state = State::Outside;
+                } else if marker == SEARCH || marker == DIVIDER {
+                    return Err(EditError::Unreadable);
                 } else {
                     replace.push(line);
                 }
@@ -175,6 +181,14 @@ mod tests {
     fn rejects_chatter_and_cut_off_blocks() {
         assert_eq!(parse_output("Done!"), Err(EditError::Unreadable));
         assert_eq!(parse_output(&format!("{SEARCH}\na\n{DIVIDER}\nb")), Err(EditError::Unreadable));
+    }
+
+    #[test]
+    fn rejects_a_block_with_a_repeated_marker() {
+        let doubled = format!("{SEARCH}\na\n{DIVIDER}\nb\n{DIVIDER}\nc\n{REPLACE}\n");
+        assert_eq!(parse_output(&doubled), Err(EditError::Unreadable));
+        let nested = format!("{SEARCH}\na\n{SEARCH}\nb\n{DIVIDER}\nc\n{REPLACE}\n");
+        assert_eq!(parse_output(&nested), Err(EditError::Unreadable));
     }
 
     #[test]
