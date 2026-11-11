@@ -4,7 +4,7 @@ cli-usage =
     الأوامر:
       ask "سؤال"          يرسل سؤالًا للنموذج ويطبع الجواب
       prompt <card.toml>  يطبع بطاقة المهمة كما يستلمها النموذج
-      run <card.toml>     ينفذ بطاقة المهمة: خطوة محفوظة واحدة أو لا تغيير
+      run <card.toml>     ينفذ بطاقة المهمة حتى تُقبل أو تتعثر
       tasks               يعرض مهام هذا المشروع المسجلة
       attempts <task>     يعرض كل محاولات مهمة (أضف --show-reply لعرض الردود الخام)
     الخيارات: --lang ar|en و --project-lang ar|en و --dir PATH و --max-lines N و --check "COMMAND" و --check-timeout SECONDS و --db FILE و --url URL و --model NAME و --timeout SECONDS
@@ -69,6 +69,51 @@ card-prompt-new =
     فقط إذا احتاجت المهمة معلومة غير مكتوبة في هذه البطاقة (مثل اسم أو قيمة ستضطر لاختراعها) فلا تخمّن. أجب بهذا السطر الوحيد بدلًا من ذلك:
     MISSING: المعلومة التي تنقصك
 
+card-retry-note =
+    محاولتك السابقة لهذه المهمة رُفضت لهذا السبب:
+    { $reason }
+    أصلح هذه المشكلة بالذات وأعطِ جوابًا مختلفًا بصيغة الناتج نفسها.
+
+## التقسيم. الكلمات TASK و GOAL: و CHECK: يقرؤها الكود: لا تُترجم أبدًا.
+split-prompt =
+    جُرّبت مهمة صغيرة على ملف واحد ورُفضت. قسّمها إلى مهمتين أصغر بالضبط. ستُنفذان واحدة بعد الأخرى، ويجب أن تحققا معًا المهمة الأصلية.
+
+    المهمة الأصلية
+    { $goal }
+
+    الملف: { $file }
+    بداية المحتوى الحالي
+    { $current }
+    نهاية المحتوى الحالي
+
+    سبب الرفض
+    { $reason }
+
+    صيغة الناتج
+    أجب بهذه الأسطر الستة بالضبط ولا شيء غيرها:
+    TASK 1
+    GOAL: جملة أو جملتان تقولان ما تغيّره المهمة الأولى
+    CHECK: عبارة واحدة تكون صحيحة عند اكتمال المهمة الأولى
+    TASK 2
+    GOAL: جملة أو جملتان تقولان ما تغيّره المهمة الثانية
+    CHECK: عبارة واحدة تكون صحيحة عند اكتمال المهمة الثانية
+
+split-unreadable = النموذج لم يُخرج مهمتين أصغر.
+ladder-attempt = المهمة { $task }، المحاولة { $number }...
+ladder-split = تقسيم المهمة { $task } إلى مهمتين أصغر...
+ladder-split-done = قُسّمت إلى المهمتين { $first } و { $second }.
+ladder-stuck = المهمة { $task } متعثرة وتنتظرك.
+ladder-model-down = توقف العمل: تعذر الوصول إلى خادم النموذج. المهمة ما زالت بانتظار التنفيذ.
+run-accepted = تم: المهمة { $task } مقبولة.
+run-stuck = المهمة { $task } لم تكتمل. اعرض محاولاتها بالأمر: sayraap attempts { $task }
+llm-timeout = النموذج لم يُجب خلال { $seconds } ثانية.
+detector-repeat-output = كُشف: الرد نفسه كمحاولة سابقة.
+detector-repeat-error = كُشف: رُفضت للسبب نفسه كالمحاولة التي قبلها.
+detector-no-change = كُشف: النموذج أجاب لكن لا شيء سيتغير.
+detector-out-of-scope = كُشف: خارج الملف المسموح أو الحجم المسموح.
+detector-timeout = كُشف: انتهت المهلة.
+attempt-line-split = المحاولة { $number } [{ $model }] تقسيم: { $outcome } — التوكنات { $prompt } داخلة، { $completion } خارجة، { $seconds } ث
+
 card-unreadable = تعذرت قراءة بطاقة المهمة: { $detail }
 card-no-goal = بطاقة المهمة بلا مطلوب.
 card-no-acceptance = بطاقة المهمة بلا معايير قبول.
@@ -104,8 +149,7 @@ task-check-failed =
 task-check-timeout = أمر الفحص لم ينتهِ خلال { $seconds } ثانية.
 check-unavailable = تعذر تشغيل أمر الفحص: { $command }. لم يُحكم على المهمة ولم يتغير شيء.
 
-task-recorded = سُجّلت كمهمة { $task }، المحاولة { $attempt }.
-task-line = { $id }  [{ $status }]  { $file }  المحاولات: { $attempts }  الخطوة: { $commit }  { $goal }
+task-line = { $id }  [{ $status }]  { $file }  المحاولات: { $attempts }  الخطوة: { $commit }  مقسّمة من: { $parent }  { $goal }
 tasks-empty = لا مهام مسجلة لهذا المشروع بعد.
 task-not-found = لا توجد في هذا المشروع مهمة "{ $id }".
 attempt-line = المحاولة { $number } [{ $model }] { $outcome } — التوكنات { $prompt } داخلة، { $completion } خارجة، { $seconds } ث

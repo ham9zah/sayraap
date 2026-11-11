@@ -11,6 +11,14 @@ use crate::Message;
 use std::io::ErrorKind;
 use std::path::Path;
 
+/// The message shown when a task is accepted.
+pub fn accepted_message(card: &TaskCard, accepted: &Accepted) -> Message {
+    Message::new("task-accepted")
+        .arg("file", &card.file)
+        .num("lines", accepted.changed_lines)
+        .arg("commit", &accepted.commit[..accepted.commit.len().min(7)])
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Accepted {
     /// The commit that holds this step.
@@ -124,7 +132,7 @@ pub fn preflight(project: &Path) -> Result<Repo, RunError> {
     Ok(repo)
 }
 
-/// Runs one task. `render` turns the card's prompt message into text in the
+/// Runs one attempt of a task. `render` turns the card's prompt message into text in the
 /// project's language; the core itself holds no text.
 pub fn run_task(
     project: &Path,
@@ -133,12 +141,19 @@ pub fn run_task(
     limits: Limits,
     check: Option<&Check>,
     render: &dyn Fn(&Message) -> String,
+    note: Option<&str>,
 ) -> Result<Report, RunError> {
     // Check the project before spending any tokens.
     let repo = preflight(project)?;
     let current = read_target(project, card)?;
 
-    let reply = match ask(&render(&card.prompt(&current))) {
+    // `note` carries the reason a previous attempt was rejected.
+    let mut prompt = render(&card.prompt(&current));
+    if let Some(note) = note {
+        prompt.push_str("\n\n");
+        prompt.push_str(note);
+    }
+    let reply = match ask(&prompt) {
         Ok(reply) => reply,
         Err(e) => {
             return Ok(Report {
@@ -331,7 +346,7 @@ mod tests {
         let (dir, _repo) = project(START);
         std::fs::write(dir.path().join("greet.rs"), "user's unsaved work\n").unwrap();
         let ask = |_: &str| -> Result<Reply, LlmError> { panic!("the model must not be called") };
-        let result = run_task(dir.path(), &card(), &ask, Limits::default(), None, &|_| String::new());
+        let result = run_task(dir.path(), &card(), &ask, Limits::default(), None, &|_| String::new(), None);
         assert!(matches!(result, Err(RunError::Repo(RepoError::Dirty { .. }))));
         assert_eq!(std::fs::read_to_string(dir.path().join("greet.rs")).unwrap(), "user's unsaved work\n");
     }

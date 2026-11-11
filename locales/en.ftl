@@ -5,7 +5,7 @@ cli-usage =
     Commands:
       ask "question"      send a question to the model and print the answer
       prompt <card.toml>  print the task card as the model would receive it
-      run <card.toml>     run the task card: one saved step, or nothing changed
+      run <card.toml>     run the task card until it is accepted or stuck
       tasks               list this project's recorded tasks
       attempts <task>     show every attempt of a task (add --show-reply for raw replies)
     Options: --lang ar|en, --project-lang ar|en, --dir PATH, --max-lines N, --check "COMMAND", --check-timeout SECONDS, --db FILE, --url URL, --model NAME, --timeout SECONDS
@@ -70,6 +70,51 @@ card-prompt-new =
     Only if the task needs a fact that is not written on this card (such as a name or a value you would have to invent), do not guess. Reply with this single line instead:
     MISSING: the fact you need
 
+card-retry-note =
+    YOUR PREVIOUS ATTEMPT AT THIS TASK WAS REJECTED FOR THIS REASON:
+    { $reason }
+    Fix exactly that problem and give a different answer in the same output format.
+
+## Splitting. The words TASK, GOAL: and CHECK: are read by code: never translate them.
+split-prompt =
+    A small task on one file was attempted and rejected. Split it into exactly two smaller tasks. They will be done one after the other, and together they must achieve the original task.
+
+    ORIGINAL TASK
+    { $goal }
+
+    FILE: { $file }
+    CURRENT CONTENT STARTS
+    { $current }
+    CURRENT CONTENT ENDS
+
+    WHY IT WAS REJECTED
+    { $reason }
+
+    OUTPUT FORMAT
+    Reply with exactly these six lines and nothing else:
+    TASK 1
+    GOAL: one or two sentences saying what the first task changes
+    CHECK: one statement that is true when the first task is done
+    TASK 2
+    GOAL: one or two sentences saying what the second task changes
+    CHECK: one statement that is true when the second task is done
+
+split-unreadable = The model did not produce two smaller tasks.
+ladder-attempt = Task { $task }, attempt { $number }...
+ladder-split = Splitting task { $task } into two smaller tasks...
+ladder-split-done = Split into tasks { $first } and { $second }.
+ladder-stuck = Task { $task } is stuck and waits for you.
+ladder-model-down = Stopped: the model server cannot be reached. The task is still waiting.
+run-accepted = Done: task { $task } is accepted.
+run-stuck = Task { $task } was not completed. See its attempts with: sayraap attempts { $task }
+llm-timeout = The model did not answer within { $seconds } seconds.
+detector-repeat-output = Detected: the same reply as an earlier attempt.
+detector-repeat-error = Detected: rejected for the same reason as the attempt before.
+detector-no-change = Detected: the model answered but nothing would change.
+detector-out-of-scope = Detected: outside the allowed file or size.
+detector-timeout = Detected: the time limit passed.
+attempt-line-split = Attempt { $number } [{ $model }] split: { $outcome } — tokens { $prompt } in, { $completion } out, { $seconds } s
+
 card-unreadable = The task card could not be read: { $detail }
 card-no-goal = The task card has an empty goal.
 card-no-acceptance = The task card has no acceptance criteria.
@@ -98,8 +143,7 @@ task-check-failed =
 task-check-timeout = The check command did not finish within { $seconds } seconds.
 check-unavailable = The check command could not be started: { $command }. The task was not judged and nothing was changed.
 
-task-recorded = Recorded as task { $task }, attempt { $attempt }.
-task-line = { $id }  [{ $status }]  { $file }  attempts: { $attempts }  step: { $commit }  { $goal }
+task-line = { $id }  [{ $status }]  { $file }  attempts: { $attempts }  step: { $commit }  split from: { $parent }  { $goal }
 tasks-empty = No tasks recorded for this project yet.
 task-not-found = This project has no task "{ $id }".
 attempt-line = Attempt { $number } [{ $model }] { $outcome } — tokens { $prompt } in, { $completion } out, { $seconds } s

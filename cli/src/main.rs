@@ -4,9 +4,9 @@ use i18n::Translator;
 use sayraap_core::check::{Check, DEFAULT_CHECK_TIMEOUT_SECS};
 use sayraap_core::limits::Limits;
 use sayraap_core::llm::{chat, Endpoint};
-use sayraap_core::runner::{read_target, Verdict};
-use sayraap_core::session::{run_recorded, RunSetup};
-use sayraap_core::store::Store;
+use sayraap_core::runner::read_target;
+use sayraap_core::session::{run_ladder, RunSetup};
+use sayraap_core::store::{AttemptKind, Store, TaskStatus};
 use sayraap_core::task::TaskCard;
 use sayraap_core::Message;
 use std::path::{Path, PathBuf};
@@ -143,13 +143,14 @@ fn open_store(o: &Options) -> Result<Store, Message> {
     Store::open(&path).map_err(|e| e.message())
 }
 
-/// `run`: one task card from model to verdict. Accepted means one new commit;
-/// rejected means the project is exactly as it was. Either way it is recorded.
+/// `run`: one task card taken up the escalation ladder until it is accepted
+/// or stuck. Progress is printed as it happens and everything is recorded.
 fn run(o: &Options, t: &Translator) -> Result<(), Message> {
     let card = load_card(&o.rest[1])?;
     let store = open_store(o)?;
     let project = project_translator(o);
     let render = |message: &Message| project.text(message);
+    let events = |message: &Message| eprintln!("{}", t.text(message));
     let ask = |prompt: &str| chat(&o.endpoint, prompt);
     let check = o.check.as_deref().and_then(|line| Check::from_line(line, o.check_timeout));
     let setup = RunSetup {
@@ -159,27 +160,19 @@ fn run(o: &Options, t: &Translator) -> Result<(), Message> {
         limits: o.limits,
         check: check.as_ref(),
         render: &render,
+        events: &events,
     };
-    let recorded = run_recorded(&store, &card, &setup).map_err(|e| e.message())?;
-    let report = recorded.report;
-    if report.prompt_tokens + report.completion_tokens > 0 {
-        usage_line(t, &o.endpoint, report.prompt_tokens, report.completion_tokens);
-    }
-    let noted = Message::new("task-recorded").num("task", recorded.task).num("attempt", recorded.attempt);
-    eprintln!("{}", t.text(&noted));
-    match report.verdict {
-        Verdict::Accepted(accepted) => {
-            let done = Message::new("task-accepted")
-                .arg("file", &card.file)
-                .num("lines", accepted.changed_lines)
-                .arg("commit", &accepted.commit[..7]);
-            println!("{}", t.text(&done));
-            Ok(())
-        }
-        Verdict::Rejected(rejection) => {
-            eprintln!("{}", t.text(&Message::new("task-rejected")));
-            Err(rejection.message())
-        }
+    let result = run_ladder(&store, &card, &setup).map_err(|e| e.message())?;
+    let summary = Message::new(match result.status {
+        TaskStatus::Accepted => "run-accepted",
+        _ => "run-stuck",
+    })
+    .num("task", result.task);
+    if result.status == TaskStatus::Accepted {
+        println!("{}", t.text(&summary));
+        Ok(())
+    } else {
+        Err(summary)
     }
 }
 
@@ -199,6 +192,7 @@ fn tasks(o: &Options, t: &Translator) -> Result<(), Message> {
             .arg("file", row.file)
             .num("attempts", row.attempts)
             .arg("commit", row.commit.as_deref().map(|c| &c[..c.len().min(7)]).unwrap_or("-"))
+            .arg("parent", row.parent.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string()))
             .arg("goal", row.goal);
         println!("{}", t.text(&line));
     }
@@ -216,7 +210,10 @@ fn attempts(o: &Options, t: &Translator) -> Result<(), Message> {
     }
     for row in store.attempts(task).map_err(|e| e.message())? {
         let outcome = t.text(&Message::new(format!("outcome-{}", row.outcome.as_str())));
-        let line = Message::new("attempt-line")
+        let line = Message::new(match row.kind {
+            AttemptKind::Execute => "attempt-line",
+            AttemptKind::Split => "attempt-line-split",
+        })
             .num("number", row.number)
             .arg("model", row.model)
             .arg("outcome", outcome)
@@ -228,6 +225,9 @@ fn attempts(o: &Options, t: &Translator) -> Result<(), Message> {
             for text in t.text(reason).lines() {
                 println!("    {text}");
             }
+        }
+        if let Some(detector) = row.detector {
+            println!("    {}", t.text(&Message::new(format!("detector-{}", detector.as_str()))));
         }
         if o.show_reply {
             for text in row.reply.as_deref().unwrap_or("").lines() {

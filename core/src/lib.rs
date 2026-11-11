@@ -9,6 +9,7 @@ pub mod llm;
 pub mod repo;
 pub mod runner;
 pub mod session;
+pub mod split;
 pub mod store;
 pub mod task;
 

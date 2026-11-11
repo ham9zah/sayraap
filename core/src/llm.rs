@@ -23,8 +23,10 @@ pub struct Reply {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LlmError {
-    /// No answer at all: server down, wrong address, or the timeout passed.
+    /// No connection: server down or wrong address.
     Unreachable { url: String },
+    /// The model did not finish answering within the task's time limit.
+    TimedOut { seconds: u64 },
     /// The server answered with an HTTP error status.
     Http { status: u16 },
     /// The answer was not the JSON shape we expect.
@@ -35,6 +37,7 @@ impl LlmError {
     pub fn message(&self) -> Message {
         match self {
             LlmError::Unreachable { url } => Message::new("llm-unreachable").arg("url", url),
+            LlmError::TimedOut { seconds } => Message::new("llm-timeout").num("seconds", *seconds),
             LlmError::Http { status } => {
                 Message::new("llm-http-error").num("status", *status)
             }
@@ -56,10 +59,36 @@ pub fn chat(endpoint: &Endpoint, prompt: &str) -> Result<Reply, LlmError> {
     let response = match agent.post(&url).send_json(body) {
         Ok(r) => r,
         Err(ureq::Error::Status(status, _)) => return Err(LlmError::Http { status }),
-        Err(ureq::Error::Transport(_)) => return Err(LlmError::Unreachable { url }),
+        Err(ureq::Error::Transport(transport)) => {
+            return Err(if is_timeout(&transport) {
+                LlmError::TimedOut { seconds: endpoint.timeout.as_secs() }
+            } else {
+                LlmError::Unreachable { url }
+            })
+        }
     };
-    let value: Value = response.into_json().map_err(|_| LlmError::BadResponse)?;
+    // The time limit can also pass while the body is still arriving.
+    let value: Value = response.into_json().map_err(|e| match e.kind() {
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => {
+            LlmError::TimedOut { seconds: endpoint.timeout.as_secs() }
+        }
+        _ => LlmError::BadResponse,
+    })?;
     parse_reply(&value)
+}
+
+/// True if an I/O timeout is anywhere in the error's chain of causes.
+fn is_timeout(error: &(dyn std::error::Error + 'static)) -> bool {
+    let mut cause = Some(error);
+    while let Some(e) = cause {
+        if let Some(io) = e.downcast_ref::<std::io::Error>() {
+            if matches!(io.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock) {
+                return true;
+            }
+        }
+        cause = e.source();
+    }
+    false
 }
 
 fn parse_reply(value: &Value) -> Result<Reply, LlmError> {
@@ -92,6 +121,18 @@ mod tests {
     #[test]
     fn rejects_a_reply_without_content() {
         assert_eq!(parse_reply(&json!({ "choices": [] })), Err(LlmError::BadResponse));
+    }
+
+    #[test]
+    fn a_silent_server_is_a_timeout() {
+        // Accepts the connection and never answers.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = Endpoint {
+            base_url: format!("http://{}/v1", listener.local_addr().unwrap()),
+            model: "none".into(),
+            timeout: Duration::from_secs(1),
+        };
+        assert_eq!(chat(&endpoint, "x"), Err(LlmError::TimedOut { seconds: 1 }));
     }
 
     #[test]
